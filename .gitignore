@@ -1,0 +1,20 @@
+*.so
+backend/venv/
+venv/
+ENV/
+env/
+.env
+.env.*
+!.env.example
+
+
+# IDEs and Editors
+.visualstudio
+.vscode/
+*.swp
+*.swo
+.idea/
+
+# Operating System files
+.DS_Store
+Thumbs.db

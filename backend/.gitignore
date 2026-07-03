@@ -1,0 +1,57 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment (Matches your local 'venv' folder)
+backend/venv/
+venv/
+ENV/
+env/
+
+# Environment variables / Secrets
+.env
+.env.*
+!.env.example
+
+# Testing / Coverage
+.phpunit.result.cache
+.notexist
+.pytest_cache/
+.coverage
+.coverage.*
+.htmlcov/
+htmlcov/
+
+# IDEs and Editors
+.visualstudio
+.vscode/
+*.swp
+*.swo
+.idea/
+
+# Operating System files
+.DS_Store
+Thumbs.db
