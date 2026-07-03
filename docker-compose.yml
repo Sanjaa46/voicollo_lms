@@ -139,6 +139,7 @@ services:
       DB_HOST: lms-db
       RETENTION_DATABASE_URL: mysql+aiomysql://lms_retention:${LMS_RETENTION_DB_PASSWORD}@lms-db:3306/lms
       ALLOWED_GITHUB_USERNAME: ${ALLOWED_GITHUB_USERNAME:?ALLOWED_GITHUB_USERNAME is required}
+      FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL is required}
 
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
@@ -159,8 +160,6 @@ services:
       RETENTION_JOB_MINUTE: ${RETENTION_JOB_MINUTE:-0}
 
       TZ: Asia/Ulaanbaatar
-    ports:
-      - "${LMS_API_PORT:-8000}:8000"
     depends_on:
       lms-db:
         condition: service_healthy
@@ -186,11 +185,6 @@ services:
       dockerfile: Dockerfile
     container_name: lms-frontend
     restart: unless-stopped
-    environment:
-      VITE_API_BASE_URL: lms-api:8000/api/v1
-      LMS_FRONTEND_PORT: ${LMS_FRONTEND_PORT:-5173}
-    ports:
-      - "${LMS_FRONTEND_PORT:-5173}:80"
     depends_on:
       lms-api:
         condition: service_healthy
@@ -202,3 +196,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+  
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      lms-api:
+        condition: service_healthy
+    networks:
+      - lms_internal

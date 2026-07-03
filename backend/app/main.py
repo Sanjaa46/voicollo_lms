@@ -198,12 +198,12 @@ def create_app() -> FastAPI:
         return response
 
     # CORS middleware — internal services only; restrictive by default.
-    # TODO: Confirm allowed origins with the DAN SSO / infra team before
+    # TODO: Confirm allowed origins with the infra team before
     #       production deployment. For a government on-prem system, CORS
     #       may be entirely disabled if all clients are server-to-server.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=['http://localhost:5173'],
+        allow_origins=[f'{settings.frontend_url}'],
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH"],
         allow_headers=["Authorization", "Content-Type", "X-Request-ID"],

@@ -104,6 +104,11 @@ class Settings(BaseSettings):
     # -------------------------------------------------------------------------
     # Server
     # -------------------------------------------------------------------------
+    frontend_url: str = Field(default="http://localhost:5173", description="Frontend URL for CORS and redirects")
+
+    # -------------------------------------------------------------------------
+    # Server
+    # -------------------------------------------------------------------------
     uvicorn_host: str = Field(default="0.0.0.0")
     uvicorn_port: int = Field(default=8000)
     uvicorn_workers: int = Field(default=1)

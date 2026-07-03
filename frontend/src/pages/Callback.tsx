@@ -34,8 +34,8 @@ export const Callback: React.FC = () => {
     onSuccess: (tokenResponse) => {
       const jti = getJTIFromToken(tokenResponse.access_token) || '';
 
-      if (tokenResponse.username !== 'sanjmyat4v') {
-        throw new Error(`Access denied. Only user 'sanjmyat4v' is authorized. You are logged in as '${tokenResponse.username}'.`);
+      if (tokenResponse.username !== 'Sanjaa46') {
+        throw new Error(`Access denied. Only user 'Sanjaa46' is authorized. You are logged in as '${tokenResponse.username}'.`);
       }
 
       login(tokenResponse.access_token, tokenResponse.refresh_token, tokenResponse.username, jti);
