@@ -8,6 +8,8 @@ changes on a breaking API redesign; the product version is in `VERSION`.
 ## [Unreleased]
 
 ### Changed
+- Multi-arch image builds compile the SPA once on the native build platform
+  instead of under QEMU emulation for arm64 (much faster releases).
 - Releases are automatic: merging a `VERSION` bump into `main` publishes the
   image and creates the `vX.Y.Z` tag and GitHub release. `scripts/release.sh`
   no longer creates tags.
