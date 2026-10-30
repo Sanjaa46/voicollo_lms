@@ -7,6 +7,11 @@ changes on a breaking API redesign; the product version is in `VERSION`.
 
 ## [Unreleased]
 
+### Changed
+- Releases are automatic: merging a `VERSION` bump into `main` publishes the
+  image and creates the `vX.Y.Z` tag and GitHub release. `scripts/release.sh`
+  no longer creates tags.
+
 ## [2.0.0] - 2026-10-30
 
 First versioned release. Deployed as a single image
