@@ -10,6 +10,7 @@ the deployment `.env` then contains each password exactly once.
 """
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
 
@@ -19,6 +20,15 @@ from sqlalchemy.engine import URL
 
 APP_DB_USER = "lms_app"
 RETENTION_DB_USER = "lms_retention"
+
+
+def _source_version() -> str:
+    """VERSION file at the repository root (source checkouts); images bake LMS_BUILD_VERSION."""
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "VERSION"
+        if candidate.is_file():
+            return candidate.read_text().strip()
+    return "0.0.0-dev"
 
 
 def build_mysql_url(user: str, password: str, host: str, port: int, database: str) -> str:
@@ -97,9 +107,17 @@ class DatabaseSettings(BaseSettings):
 class Settings(DatabaseSettings):
     # ------------------------------------------------------------------ app
     app_env: Literal["development", "staging", "production", "test"] = "production"
-    app_version: str = "0.0.0-dev"
-    git_sha: str = "unknown"
-    build_date: str = "unknown"
+    # Build metadata is baked into the image (LMS_BUILD_*) and wins over .env values.
+    app_version: str = Field(
+        default_factory=_source_version,
+        validation_alias=AliasChoices("LMS_BUILD_VERSION", "APP_VERSION"),
+    )
+    git_sha: str = Field(
+        default="unknown", validation_alias=AliasChoices("LMS_BUILD_SHA", "GIT_SHA")
+    )
+    build_date: str = Field(
+        default="unknown", validation_alias=AliasChoices("LMS_BUILD_DATE", "BUILD_DATE")
+    )
     public_url: str = Field(
         default="http://localhost:8000",
         validation_alias=AliasChoices("PUBLIC_URL", "FRONTEND_URL"),

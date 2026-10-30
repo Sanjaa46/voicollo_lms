@@ -1,0 +1,24 @@
+# Override: build the image from this checkout instead of pulling it, and
+# expose MariaDB/Redis on localhost for local development.
+#
+#   cd deploy && cp .env.example .env    # fill in; LMS_VERSION=dev, APP_ENV=development
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
+
+x-build: &build
+  context: ..
+  args:
+    VERSION: ${LMS_VERSION:-dev}
+
+services:
+  lms-migrate:
+    build: *build
+    image: voicollo-lms:${LMS_VERSION:-dev}
+    pull_policy: build
+  lms-app:
+    build: *build
+    image: voicollo-lms:${LMS_VERSION:-dev}
+    pull_policy: build
+  lms-db:
+    ports: ["127.0.0.1:${DB_PUBLISH_PORT:-3306}:3306"]
+  lms-cache:
+    ports: ["127.0.0.1:${REDIS_PUBLISH_PORT:-6379}:6379"]

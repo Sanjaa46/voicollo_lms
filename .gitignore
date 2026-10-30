@@ -18,3 +18,11 @@ env/
 # Operating System files
 .DS_Store
 Thumbs.db
+# Python / Node build output
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+backend/.venv/
+node_modules/
+frontend/dist/

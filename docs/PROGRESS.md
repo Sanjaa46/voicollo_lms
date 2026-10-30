@@ -31,14 +31,14 @@ Branch in all repos: `claude/busy-fermat-k5t7zn`
 - [x] 2.5 Lint + build clean
 
 ## Phase 3 — Deployment
-- [ ] 3.1 Root Dockerfile
-- [ ] 3.2 Entrypoint + SPA serving
-- [ ] 3.3 deploy/ compose + .env.example
-- [ ] 3.4 Dev compose
-- [ ] 3.5 VERSION, CHANGELOG, release script, Makefile
-- [ ] 3.6 GitHub Actions CI + release
-- [ ] 3.7 DEPLOYMENT.md + README
-- [ ] 3.8 Remove obsolete deployment files
+- [x] 3.1 Root Dockerfile
+- [x] 3.2 Entrypoint + SPA serving
+- [x] 3.3 deploy/ compose + .env.example
+- [x] 3.4 Dev compose
+- [x] 3.5 VERSION, CHANGELOG, release script, Makefile
+- [x] 3.6 GitHub Actions CI + release
+- [x] 3.7 DEPLOYMENT.md + README
+- [x] 3.8 Remove obsolete deployment files
 
 ## Phase 4 — Client packages
 - [ ] 4.1 Python package
@@ -48,6 +48,12 @@ Branch in all repos: `claude/busy-fermat-k5t7zn`
 
 ## Session notes
 (Newest first. Write what was in flight when a session ended.)
+
+- 2026-10-30 — Phase 3 done. Root Dockerfile builds one 338 MB image
+  (SPA + API + migrations, non-root, healthcheck). deploy/docker-compose.yml
+  verified from scratch: migrate → healthy app, SPA + API on one origin,
+  signed ingest, idempotent re-deploy. release.sh dry-run verified.
+  Next: Phase 4 (client packages).
 
 - 2026-10-30 — Phase 2 done. New React UI (Overview, Logs explorer with drawer,
   log detail, Services with integration snippets, System) on ChatBridge tokens;

@@ -1,0 +1,115 @@
+# =============================================================================
+# Voicollo LMS — production deployment.
+#
+# Needs only this file, a filled-in `.env` next to it, and the published image:
+#
+#   cp .env.example .env && $EDITOR .env      # once
+#   docker compose pull && docker compose up -d
+#
+# Upgrade:  set LMS_VERSION in .env, then the same two commands.
+# Optional Cloudflare tunnel:  docker compose --profile tunnel up -d
+# =============================================================================
+
+name: voicollo-lms
+
+x-lms-image: &lms-image
+  image: ${LMS_IMAGE:-ghcr.io/sanjaa46/voicollo-lms}:${LMS_VERSION:?Set LMS_VERSION in .env (e.g. 2.0.0)}
+
+services:
+  lms-db:
+    image: mariadb:10.6
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Set DB_ROOT_PASSWORD in .env}
+      MARIADB_DATABASE: ${DB_NAME:-lms}
+      MARIADB_AUTO_UPGRADE: "1"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+00:00
+      - --innodb-buffer-pool-size=${DB_BUFFER_POOL:-256M}
+      - --max-connections=150
+    volumes:
+      - lms_db_data:/var/lib/mysql
+    networks: [lms]
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  lms-cache:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+    command:
+      - sh
+      - -c
+      - >-
+        exec redis-server --requirepass "$$REDIS_PASSWORD"
+        --maxmemory ${REDIS_MAXMEMORY:-256mb} --maxmemory-policy allkeys-lru
+        --save 300 100 --save 60 10000 --appendonly no
+    volumes:
+      - lms_redis_data:/data
+    networks: [lms]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  # One-shot: applies migrations (as DB root) and syncs DB user passwords.
+  lms-migrate:
+    <<: *lms-image
+    command: ["migrate"]
+    env_file: .env
+    environment:
+      DB_HOST: lms-db
+    depends_on:
+      lms-db: { condition: service_healthy }
+    networks: [lms]
+    restart: "no"
+
+  lms-app:
+    <<: *lms-image
+    command: ["serve"]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_HOST: lms-db
+      REDIS_HOST: lms-cache
+      DB_ROOT_PASSWORD: ""          # the API never needs root
+      MARIADB_ROOT_PASSWORD: ""
+    ports:
+      - "${LMS_BIND_ADDRESS:-127.0.0.1}:${LMS_HTTP_PORT:-8000}:8000"
+    depends_on:
+      lms-db: { condition: service_healthy }
+      lms-cache: { condition: service_healthy }
+      lms-migrate: { condition: service_completed_successfully }
+    networks: [lms]
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+  cloudflared:
+    image: cloudflare/cloudflared:${CLOUDFLARED_VERSION:-2025.4.0}
+    profiles: [tunnel]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      lms-app: { condition: service_healthy }
+    networks: [lms]
+
+volumes:
+  lms_db_data:
+    name: ${LMS_DB_VOLUME:-voicollo_lms_db_data}
+  lms_redis_data:
+    name: ${LMS_REDIS_VOLUME:-voicollo_lms_redis_data}
+
+networks:
+  lms: {}
