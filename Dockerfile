@@ -14,7 +14,10 @@ ARG NODE_IMAGE=node:22-alpine
 ARG PYTHON_IMAGE=python:3.12-slim
 
 # ---------------------------------------------------------------- 1. frontend
-FROM ${NODE_IMAGE} AS web
+# The SPA is static files, identical for every CPU architecture, so it is built
+# once on the build machine's native platform. Without this, a multi-arch build
+# runs npm + Vite under QEMU emulation for arm64, which is several times slower.
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS web
 WORKDIR /web
 COPY frontend/package.json frontend/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
