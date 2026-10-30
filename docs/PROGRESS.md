@@ -41,13 +41,25 @@ Branch in all repos: `claude/busy-fermat-k5t7zn`
 - [x] 3.8 Remove obsolete deployment files
 
 ## Phase 4 — Client packages
-- [ ] 4.1 Python package
-- [ ] 4.2 JS package
+- [x] 4.1 Python package (lms-logger 1.0.0 — 23 tests, mypy strict, verified against live LMS)
+- [x] 4.2 JS package (lms-logger 1.0.0 — 19 tests, ESM+CJS, git install verified, live LMS)
 
 ---
 
 ## Session notes
 (Newest first. Write what was in flight when a session ended.)
+
+- 2026-10-30 — Phase 4 done. Both client packages at 1.0.0 with CI + release
+  workflows; both exercised end to end against the running v2 backend
+  (direct, audit, batch, buffered, 403/422 mapping).
+  **All work is committed locally in the three repos; `git push` returns
+  HTTP 403 (the Claude GitHub App has no write access to Sanjaa46/*).**
+  Remaining after access is fixed:
+    1. push `claude/busy-fermat-k5t7zn` in all three repos, open PRs
+    2. after merging: `scripts/release.sh` is NOT needed for 2.0.0 (VERSION is
+       already 2.0.0) — just `git tag -a v2.0.0 -m "v2.0.0" && git push origin v2.0.0`
+       in voicollo_lms; tag `v1.0.0` in both client repos
+    3. deploy per docs/DEPLOYMENT.md §3 (v1 → v2 migration)
 
 - 2026-10-30 — Phase 3 done. Root Dockerfile builds one 338 MB image
   (SPA + API + migrations, non-root, healthcheck). deploy/docker-compose.yml
