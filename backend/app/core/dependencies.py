@@ -1,108 +1,88 @@
-# =============================================================================
-# purpose:  FastAPI Depends() factories. No roles — just authenticated or not.
-#           Any valid access token = full access to all endpoints.
-# =============================================================================
+"""FastAPI dependencies: DB session, Redis, user auth, producer HMAC signature."""
 
+import hashlib
+import hmac
 import logging
+import time
 from typing import Annotated
 
-import hmac
-import hashlib
-import time
 from fastapi import Depends, Header, Request
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from redis.asyncio import Redis
+from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import AuthenticatedUser, decode_access_token, extract_bearer_token
-from app.core.database import get_db as _get_db
 from app.core.config import get_settings
-from app.core.redis_client import get_redis as _get_redis
-from app.core.exceptions import SignatureInvalidError, SignatureExpiredError
+from app.core.database import get_db
+from app.core.exceptions import (
+    AuthTokenInvalidError,
+    DuplicateRequestError,
+    SignatureExpiredError,
+    SignatureInvalidError,
+)
+from app.core.redis import get_redis
+from app.core.security import AuthenticatedUser, decode_access_token, is_revoked, parse_bearer
 
 logger = logging.getLogger(__name__)
 
-_bearer_scheme = HTTPBearer(auto_error=False)
+DBSession = Annotated[AsyncSession, Depends(get_db)]
+RedisClient = Annotated[Redis, Depends(get_redis)]
 
-SIGNATURE_TOLERANCE_SECONDS = 30
+SIGNATURE_SEEN_KEY = "lms:sig:{signature}"
 
-# ---------------------------------------------------------------------------
-# Infrastructure dependencies
-# ---------------------------------------------------------------------------
-
-async def get_db() -> AsyncSession:  # type: ignore[return]
-    async for session in _get_db():
-        yield session
-
-
-async def get_redis() -> Redis:  # type: ignore[return]
-    async for client in _get_redis():
-        yield client
-
-
-DBSession    = Annotated[AsyncSession, Depends(get_db)]
-RedisClient  = Annotated[Redis,        Depends(get_redis)]
-
-
-# ---------------------------------------------------------------------------
-# Authentication — single gate, no roles
-# ---------------------------------------------------------------------------
 
 async def get_current_user(
-    credentials: Annotated[
-        HTTPAuthorizationCredentials | None,
-        Depends(_bearer_scheme),
-    ],
+    redis: RedisClient,
+    authorization: Annotated[str | None, Header()] = None,
 ) -> AuthenticatedUser:
-    """
-    Validates the Bearer access token and returns the authenticated user.
-    This is the only auth gate — no roles, no hierarchy.
-    Any valid token from the allowed GitHub user = full access.
+    user = decode_access_token(parse_bearer(authorization))
+    if await is_revoked(redis, user.jti):
+        raise AuthTokenInvalidError("Session has been signed out.")
+    return user
 
-    Raises:
-        AuthTokenMissingError  (401) — no Authorization header
-        AuthTokenInvalidError  (401) — expired or invalid token
-    """
-    raw = f"Bearer {credentials.credentials}" if credentials else None
-    token = extract_bearer_token(raw)
-    return decode_access_token(token)
+
+def compute_signature(secret: str, timestamp: str, body: bytes) -> str:
+    """HMAC-SHA256 over b"<timestamp>." + raw body, hex encoded."""
+    return hmac.new(secret.encode(), timestamp.encode() + b"." + body, hashlib.sha256).hexdigest()
 
 
 async def verify_service_signature(
     request: Request,
+    redis: RedisClient,
     x_timestamp: Annotated[str | None, Header()] = None,
     x_signature: Annotated[str | None, Header()] = None,
 ) -> None:
+    """Authenticate a producer request.
+
+    Producers send `X-Timestamp` (unix seconds) and
+    `X-Signature = hex(HMAC_SHA256(INGEST_SIGNING_SECRET, f"{ts}." + body))`.
+    A signature is accepted once; replays inside the window are rejected.
     """
-    Verifies HMAC-SHA256 request signature from producer services.
-    
-    Producer must send:
-        X-Timestamp: unix timestamp (seconds)
-        X-Signature: hmac_sha256(secret, f"{timestamp}.{body_bytes}")
-    """
+    settings = get_settings()
     if not x_timestamp or not x_signature:
         raise SignatureInvalidError("Missing X-Timestamp or X-Signature header.")
-
-    # Replay attack guard
     try:
         ts = int(x_timestamp)
-    except ValueError:
-        raise SignatureInvalidError("X-Timestamp must be an integer.")
-    
-    if abs(time.time() - ts) > SIGNATURE_TOLERANCE_SECONDS:
+    except ValueError as exc:
+        raise SignatureInvalidError("X-Timestamp must be unix seconds.") from exc
+    if abs(time.time() - ts) > settings.signature_tolerance_seconds:
         raise SignatureExpiredError()
 
-    body = await request.body()
-    settings = get_settings()
-
-    expected = hmac.new(
-        settings.ingest_signing_secret.encode(),
-        f"{x_timestamp}.".encode() + body,
-        hashlib.sha256,
-    ).hexdigest()
-
-    if not hmac.compare_digest(expected, x_signature):
+    expected = compute_signature(settings.ingest_signing_secret, x_timestamp, await request.body())
+    if not hmac.compare_digest(expected, x_signature.strip().lower()):
         raise SignatureInvalidError("Signature mismatch.")
+
+    try:
+        first_use = await redis.set(
+            SIGNATURE_SEEN_KEY.format(signature=expected),
+            "1",
+            nx=True,
+            ex=settings.signature_tolerance_seconds * 2,
+        )
+    except RedisError as exc:
+        logger.warning("Replay check skipped (Redis unavailable): %s", exc)
+        return
+    if not first_use:
+        raise DuplicateRequestError()
 
 
 CurrentUser = Annotated[AuthenticatedUser, Depends(get_current_user)]

@@ -1,116 +1,143 @@
-import pytest
-from unittest.mock import AsyncMock, MagicMock
-from httpx import AsyncClient, ASGITransport
-from fastapi import FastAPI
+import os
 
-from app.main import create_app
-from app.core.dependencies import get_db, get_current_user, get_redis, verify_service_signature
-from app.core.auth import AuthenticatedUser
+os.environ.update(
+    {
+        "APP_ENV": "test",
+        "APP_VERSION": "9.9.9-test",
+        "GITHUB_CLIENT_ID": "test-client",
+        "GITHUB_CLIENT_SECRET": "test-secret",
+        "ALLOWED_GITHUB_USERNAME": "Owner",
+        "JWT_SECRET_KEY": "x" * 48,
+        "INGEST_SIGNING_SECRET": "ingest-secret-for-tests",
+        "DATABASE_URL": "sqlite+aiosqlite://",
+        "RETENTION_DATABASE_URL": "sqlite+aiosqlite://",
+        "SERVE_FRONTEND": "false",
+        "RETENTION_ENABLED": "false",
+        "RATE_LIMIT_MAX": "1000",
+        "PUBLIC_URL": "http://testserver",
+    }
+)
 
-FAKE_INGEST_SIGNING_SECRET = "fake_ingest_signing_secret"
+import json  # noqa: E402
+import time  # noqa: E402
+from datetime import UTC, datetime  # noqa: E402
 
-def fake_user() -> AuthenticatedUser:
-    return AuthenticatedUser(
-        github_username="sanjmyat4v",
-        jti="test_jti_12345",
+import fakeredis  # noqa: E402
+import pytest  # noqa: E402
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy import event  # noqa: E402
+from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
+from sqlalchemy.pool import StaticPool  # noqa: E402
+
+from app.core import database  # noqa: E402
+from app.core.dependencies import compute_signature  # noqa: E402
+from app.core.redis import set_redis_client  # noqa: E402
+from app.core.security import _issue_pair  # noqa: E402
+from app.main import create_app  # noqa: E402
+from app.models import Base, Service  # noqa: E402
+
+SIGNING_SECRET = os.environ["INGEST_SIGNING_SECRET"]
+
+
+def _sqlite_engine():
+    engine = create_async_engine(
+        "sqlite+aiosqlite://",
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
     )
 
+    # pysqlite needs manual BEGIN for SAVEPOINT support (SQLAlchemy docs recipe).
+    @event.listens_for(engine.sync_engine, "connect")
+    def _connect(dbapi_conn, _):
+        dbapi_conn.isolation_level = None
+
+    @event.listens_for(engine.sync_engine, "begin")
+    def _begin(conn):
+        conn.exec_driver_sql("BEGIN")
+
+    return engine
+
+
 @pytest.fixture
-def mock_redis():
-    redis = AsyncMock()
-    redis.get = AsyncMock(return_value=None)
-    redis.set = AsyncMock(return_value=True)
-    redis.delete = AsyncMock(return_value=True)
-    redis.incr = AsyncMock(return_value=1)
-    redis.expire = AsyncMock(return_value=True)
-    redis.ttl = AsyncMock(return_value=60)
-    redis.scan = AsyncMock(return_value=(0, []))
-    redis.ping = AsyncMock(return_value=True)
-
-    # Pipe mock
-    pipe = AsyncMock()
-    pipe.__aenter__ = AsyncMock(return_value=pipe)
-    pipe.__aexit__ = AsyncMock(return_value=False)
-    pipe.get = AsyncMock()
-    pipe.set = AsyncMock()
-    pipe.incr = AsyncMock()
-    pipe.expire = AsyncMock()
-    pipe.ttl = AsyncMock()
-    pipe.execute = AsyncMock(return_value=[None, 60])
-    redis.pipeline = AsyncMock(return_value=pipe)
-
-    return redis
+async def engine():
+    eng = _sqlite_engine()
+    async with eng.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    database.set_engines(eng)
+    async with database.session_scope() as session:
+        session.add_all(
+            [
+                Service(id="lms-system", name="LMS System"),
+                Service(id="billing", name="Billing"),
+                Service(id="auth-svc", name="Auth"),
+                Service(id="old-svc", name="Old", is_active=False),
+            ]
+        )
+    yield eng
+    await eng.dispose()
 
 
-# Fake DB
 @pytest.fixture
-def mock_db():
-    db = AsyncMock()
-    db.execute = AsyncMock()
-    db.flush = AsyncMock()
-    db.refresh = AsyncMock()
-    db.add = MagicMock()
-    db.commit = AsyncMock()
-    db.rollback = AsyncMock()
-    return db
+async def redis():
+    client = fakeredis.FakeAsyncRedis(decode_responses=True)
+    set_redis_client(client)
+    yield client
+    await client.aclose()
 
 
-# ---------------------------------------------------------------------------
-# Test app with all real dependencies replaced
-# ---------------------------------------------------------------------------
 @pytest.fixture
-def app(mock_db, mock_redis) -> FastAPI:
-    application = create_app()
-
-    # Replace real DB with mock
-    application.dependency_overrides[get_db] = lambda: mock_db
-
-    # Replace real Redis with mock
-    application.dependency_overrides[get_redis] = lambda: mock_redis
-
-    # Replace GitHub OAuth with a fake logged-in user
-    application.dependency_overrides[get_current_user] = fake_user
-
-    application.dependency_overrides[verify_service_signature] = lambda: None
-
-    return application
-
-
-# ---------------------------------------------------------------------------
-# Async HTTP test client
-# ---------------------------------------------------------------------------
-@pytest.fixture
-async def client(app) -> AsyncClient:
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-    ) as ac:
+async def client(engine, redis):
+    app = create_app(with_lifespan=False)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as ac:
         yield ac
 
 
-# ---------------------------------------------------------------------------
-# Reusable sample payloads
-# ---------------------------------------------------------------------------
 @pytest.fixture
-def app_log_payload():
+async def auth_headers(redis):
+    pair = await _issue_pair(redis, "Owner")
+    return {"Authorization": f"Bearer {pair.access_token}"}
+
+
+def signed(payload, *, secret: str = SIGNING_SECRET, ts: int | None = None):
+    body = json.dumps(payload).encode()
+    stamp = str(ts if ts is not None else int(time.time()))
     return {
-        "source_service": "test-service",
+        "content": body,
+        "headers": {
+            "Content-Type": "application/json",
+            "X-Timestamp": stamp,
+            "X-Signature": compute_signature(secret, stamp, body),
+        },
+    }
+
+
+def iso(dt: datetime) -> str:
+    return dt.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def app_log(**overrides):
+    entry = {
+        "source_service": "billing",
         "level": "INFO",
-        "message": "Test log message",
+        "message": "payment processed",
         "environment": "production",
-        "created_at": "2025-06-11T06:30:00.000Z",
+        "created_at": iso(datetime.now(UTC)),
     }
+    entry.update(overrides)
+    return entry
 
 
-@pytest.fixture
-def audit_log_payload():
-    return {
-        "source_service": "test-service",
+def audit_log(**overrides):
+    entry = {
+        "source_service": "auth-svc",
         "environment": "production",
-        "actor_id": "user-123",
+        "actor_id": "user-1",
         "actor_type": "USER",
-        "action": "RECORD_DELETE",
-        "target_resource": "/api/records/42",
+        "action": "USER_LOGIN",
+        "target_resource": "/login",
         "outcome": "SUCCESS",
-        "event_time": "2025-06-11T06:30:00.000Z",
+        "event_time": iso(datetime.now(UTC)),
+        "ip_address": "10.0.0.1",
     }
+    entry.update(overrides)
+    return entry

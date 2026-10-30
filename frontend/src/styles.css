@@ -1,0 +1,192 @@
+@import "tailwindcss";
+
+/* Design tokens — mirrored from ChatBridge (apps/web/src/app/globals.css) so
+   both products read as one family: dark-first console, amber brand accent,
+   Unbounded display type, IBM Plex for UI and data. */
+@theme {
+  --font-display: "Unbounded Variable", "Iowan Old Style", serif;
+  --font-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --color-bg: #0a0a0c;
+  --color-bg-raised: #111114;
+  --color-bg-panel: #17171b;
+  --color-bg-panel-hover: #1d1d22;
+  --color-border: #29292f;
+  --color-border-subtle: #1e1e23;
+
+  --color-text: #ededf0;
+  --color-text-muted: #9a9aa5;
+  --color-text-faint: #8a8a94;
+
+  --color-amber: #ff8a1e;
+  --color-amber-soft: #ff8a1e1a;
+  --color-amber-border: #ff8a1e40;
+  --color-teal: #2dd4bf;
+  --color-teal-soft: #2dd4bf1a;
+  --color-teal-border: #2dd4bf40;
+  --color-rose: #fb5c72;
+  --color-rose-soft: #fb5c721a;
+  --color-rose-border: #fb5c7240;
+
+  --color-primary: var(--color-amber);
+  --color-primary-foreground: #140b02;
+  --color-accent-text: var(--color-amber);
+
+  --color-success: #2dd4bf;
+  --color-success-soft: #2dd4bf1a;
+  --color-success-border: #2dd4bf40;
+  --color-warning: #f5a524;
+  --color-warning-soft: #f5a5241a;
+  --color-warning-border: #f5a52440;
+  --color-danger: #fb5c72;
+  --color-danger-soft: #fb5c721a;
+  --color-danger-border: #fb5c7240;
+  --color-info: #5b9dfb;
+  --color-info-soft: #5b9dfb1a;
+  --color-info-border: #5b9dfb40;
+  --color-fatal: #d36af0;
+  --color-fatal-soft: #d36af01a;
+  --color-fatal-border: #d36af040;
+
+  /* Chart series — validated with the dataviz palette checker against both
+     #111114 (dark) and #ffffff (light): lightness band, chroma, CVD ΔE. */
+  --color-series-debug: #6b6b76;
+  --color-series-info: #4a8ae6;
+  --color-series-warn: #c9840f;
+  --color-series-error: #ec5168;
+  --color-series-fatal: #c24ee0;
+  --color-series-audit: #1a9f8e;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.24);
+  --shadow-md: 0 2px 4px 0 rgb(0 0 0 / 0.24), 0 4px 16px -4px rgb(0 0 0 / 0.32);
+  --shadow-lg: 0 4px 8px 0 rgb(0 0 0 / 0.28), 0 16px 48px -12px rgb(0 0 0 / 0.45);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 150ms;
+  --duration-base: 250ms;
+  --duration-slow: 400ms;
+
+  --animate-rise-in: rise-in var(--duration-slow) var(--ease-out) both;
+  --animate-pulse-live: pulse-live 1.8s ease-in-out infinite;
+  --animate-drawer-in: drawer-in var(--duration-base) var(--ease-out) both;
+  --animate-fade-in: fade-in var(--duration-base) var(--ease-out) both;
+
+  @keyframes rise-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pulse-live {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.55; transform: scale(0.82); }
+  }
+  @keyframes drawer-in {
+    from { opacity: 0; transform: translateX(24px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+}
+
+:root[data-theme="light"] {
+  --color-bg: #f7f5f1;
+  --color-bg-raised: #ffffff;
+  --color-bg-panel: #ffffff;
+  --color-bg-panel-hover: #f1efe9;
+  --color-border: #e5e1d8;
+  --color-border-subtle: #ede9df;
+  --color-text: #1a1a1d;
+  --color-text-muted: #63636b;
+  --color-text-faint: #6b6b73;
+  --color-accent-text: #b45309;
+  --color-info: #2563eb;
+  --color-warning: #b45309;
+  --color-danger: #d63a52;
+  --color-success: #0f8a7b;
+  --color-fatal: #a83ac4;
+  --color-series-debug: #a3a3ad;
+}
+
+html {
+  color-scheme: dark;
+  background: var(--color-bg);
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+.grain-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.03;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+:root[data-theme="light"] .grain-overlay {
+  display: none;
+}
+
+/* Faint scanline grid behind console surfaces. */
+.console-grid {
+  background-image:
+    linear-gradient(to right, var(--color-border-subtle) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-border-subtle) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: var(--color-amber-soft);
+  color: var(--color-text);
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-amber);
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-faint); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

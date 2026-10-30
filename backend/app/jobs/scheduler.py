@@ -1,112 +1,58 @@
-# =============================================================================
-# purpose:  APScheduler configuration and job registration.
-#           Manages the lifecycle of the background job scheduler,
-#           integrated with FastAPI's lifespan context manager.
-#           The retention job runs nightly at 02:00 Asia/Ulaanbaatar (UTC+8).
-# implements: LMS-SDD-002 §3.5 (Retention Job — APScheduler)
-#             LMS-SDD-002 §4   (APScheduler 3.x)
-#             LMS-BRD-001 §7.1 (Server timezone: Asia/Ulaanbaatar UTC+8)
-# =============================================================================
+"""APScheduler wiring for background jobs."""
 
 import logging
+from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.core.config import get_settings
-from app.jobs.retention import run_retention_job
+from app.jobs.retention import scheduled_retention
 
 logger = logging.getLogger(__name__)
 
-# Module-level scheduler singleton — initialised once at startup.
+RETENTION_JOB_ID = "retention"
 _scheduler: AsyncIOScheduler | None = None
 
 
-def get_scheduler() -> AsyncIOScheduler:
-    """
-    Returns the scheduler singleton.
-    Raises RuntimeError if init_scheduler() has not been called.
-    """
-    if _scheduler is None:
-        raise RuntimeError(
-            "Scheduler not initialised. Call init_scheduler() at startup."
-        )
-    return _scheduler
-
-
-def init_scheduler() -> AsyncIOScheduler:
-    """
-    Creates and configures the APScheduler instance.
-    Registers all background jobs.
-    Does NOT start the scheduler — call start_scheduler() after init.
-
-    Called during application startup (app/main.py lifespan).
-
-    LMS-SDD-002 §3.5: "APScheduler (recommended: 02:00 Asia/Ulaanbaatar)"
-    LMS-BRD-001 §7.1: "Server timezone is Asia/Ulaanbaatar (UTC+8)"
-    """
+def start_scheduler() -> None:
     global _scheduler
     settings = get_settings()
-
+    if not settings.retention_enabled:
+        logger.info("Retention job disabled (RETENTION_ENABLED=false).")
+        return
     _scheduler = AsyncIOScheduler(
-        # Use Asia/Ulaanbaatar timezone for all cron expressions.
-        # This ensures the retention job runs at 02:00 local time
-        # regardless of the server's system timezone setting.
-        timezone="Asia/Ulaanbaatar",
-        job_defaults={
-            # If a job run is missed (e.g. server was down), do not
-            # retroactively execute it when the server comes back up.
-            "misfire_grace_time": 300,  # 5-minute window to still run a missed job.
-            "coalesce": True,           # If multiple runs were missed, run only once.
-            "max_instances": 1,         # Never run two instances of the same job.
-        },
+        timezone=settings.scheduler_timezone,
+        job_defaults={"misfire_grace_time": 3600, "coalesce": True, "max_instances": 1},
     )
-
-    # -------------------------------------------------------------------------
-    # Register: Nightly Retention Job
-    # LMS-SDD-002 §3.5: "Runs nightly via APScheduler (recommended: 02:00 Asia/Ulaanbaatar)"
-    # LMS-BRD-001 FR-12, FR-13: retention enforcement is a MUST requirement.
-    # -------------------------------------------------------------------------
     _scheduler.add_job(
-        func=run_retention_job,
-        trigger=CronTrigger(
+        scheduled_retention,
+        CronTrigger(
             hour=settings.retention_job_hour,
             minute=settings.retention_job_minute,
-            timezone="Asia/Ulaanbaatar",
+            timezone=settings.scheduler_timezone,
         ),
-        id="retention_job",
-        name="Nightly Log Retention Purge",
+        id=RETENTION_JOB_ID,
         replace_existing=True,
     )
-
+    _scheduler.start()
     logger.info(
-        "Scheduler initialised. Retention job scheduled at %02d:%02d Asia/Ulaanbaatar.",
+        "Retention scheduled daily at %02d:%02d %s",
         settings.retention_job_hour,
         settings.retention_job_minute,
+        settings.scheduler_timezone,
     )
-
-    return _scheduler
-
-
-def start_scheduler() -> None:
-    """
-    Starts the APScheduler instance.
-    Must be called after init_scheduler() and after the event loop is running
-    (i.e. inside the FastAPI lifespan async context).
-    """
-    scheduler = get_scheduler()
-    if not scheduler.running:
-        scheduler.start()
-        logger.info("Background job scheduler started.")
-    else:
-        logger.warning("Scheduler start called but scheduler is already running.")
 
 
 def shutdown_scheduler() -> None:
-    """
-    Gracefully shuts down the scheduler, waiting for any running jobs to complete.
-    Called during application shutdown (app/main.py lifespan).
-    """
+    global _scheduler
     if _scheduler and _scheduler.running:
-        _scheduler.shutdown(wait=True)
-        logger.info("Background job scheduler shut down gracefully.")
+        _scheduler.shutdown(wait=False)
+    _scheduler = None
+
+
+def next_retention_run() -> datetime | None:
+    if _scheduler is None:
+        return None
+    job = _scheduler.get_job(RETENTION_JOB_ID)
+    return job.next_run_time if job else None

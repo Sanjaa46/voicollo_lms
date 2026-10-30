@@ -1,71 +1,65 @@
-import { StrictMode } from 'react'
+import { StrictMode, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { createBrowserRouter, RouterProvider } from 'react-router-dom'
+import { Navigate, RouterProvider, createBrowserRouter, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { AuthProvider } from './services/authContext'
+import '@fontsource-variable/unbounded'
+import '@fontsource/ibm-plex-sans/400.css'
+import '@fontsource/ibm-plex-sans/500.css'
+import '@fontsource/ibm-plex-sans/600.css'
+import '@fontsource/ibm-plex-mono/400.css'
+import '@fontsource/ibm-plex-mono/500.css'
+import '@fontsource/ibm-plex-mono/600.css'
+import './styles.css'
+import { ApiError } from './lib/api'
+import { AuthProvider, useAuth } from './lib/auth'
+import { Shell } from './components/Shell'
 import { Login } from './pages/Login'
 import { Callback } from './pages/Callback'
-import { Dashboard } from './pages/Dashboard'
-import { LogDetails } from './pages/LogDetails'
-import { Health } from './pages/Health'
+import { Overview } from './pages/Overview'
+import { Logs } from './pages/Logs'
+import { LogDetailPage } from './pages/LogDetailPage'
 import { Services } from './pages/Services'
-import { ProtectedRoute } from './components/ProtectedRoute'
-import './index.css'
-
-import { initializeApiClient } from './services/api';
-
-initializeApiClient();
+import { System } from './pages/System'
+import { NotFound } from './pages/NotFound'
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: 1,
+      staleTime: 10_000,
       refetchOnWindowFocus: false,
-    }
-  }
+      // Client errors (4xx) will not fix themselves on retry.
+      retry: (count, error) => !(error instanceof ApiError && error.status < 500) && count < 2,
+    },
+  },
 })
 
+function RequireAuth({ children }: { children: ReactNode }) {
+  const { session } = useAuth()
+  const location = useLocation()
+  if (!session) return <Navigate to="/login" replace state={{ from: location.pathname }} />
+  return children
+}
+
 const router = createBrowserRouter([
+  { path: '/login', element: <Login /> },
+  { path: '/auth/callback', element: <Callback /> },
   {
-    path: '/',
-    element: <Login />
-  },
-  {
-    path: '/auth/callback',
-    element: <Callback />
-  },
-  {
-    path: '/dashboard',
     element: (
-      <ProtectedRoute>
-        <Dashboard />
-      </ProtectedRoute>
-    )
+      <RequireAuth>
+        <Shell />
+      </RequireAuth>
+    ),
+    children: [
+      { index: true, element: <Overview /> },
+      { path: 'logs', element: <Logs /> },
+      { path: 'logs/:logType/:logId', element: <LogDetailPage /> },
+      { path: 'services', element: <Services /> },
+      { path: 'system', element: <System /> },
+      { path: 'dashboard', element: <Navigate to="/" replace /> },
+      { path: 'health', element: <Navigate to="/system" replace /> },
+      { path: '*', element: <NotFound /> },
+    ],
   },
-  {
-    path: '/logs/:logType/:logId',
-    element: (
-      <ProtectedRoute>
-        <LogDetails />
-      </ProtectedRoute>
-    )
-  },
-  {
-    path: '/health',
-    element: (
-      <ProtectedRoute>
-        <Health />
-      </ProtectedRoute>
-    )
-  },
-  {
-    path: '/services',
-    element: (
-      <ProtectedRoute>
-        <Services />
-      </ProtectedRoute>
-    )
-  }
 ])
 
 createRoot(document.getElementById('root')!).render(

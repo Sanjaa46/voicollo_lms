@@ -1,89 +1,61 @@
-import React, { useEffect, useRef } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
-import { useMutation } from '@tanstack/react-query';
-import { useAuth } from '../services/authContext';
-import { authAPI } from '../services/api';
-import { getJTIFromToken } from '../utils/storage';
-import { ErrorAlert } from '../components/Common';
+import { useEffect, useRef, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Loader2 } from 'lucide-react'
+import { api, toSession } from '../lib/api'
+import { useAuth } from '../lib/auth'
+import { Logo } from '../components/Shell'
+import { Button, ErrorBanner } from '../components/ui'
 
-export interface CallbackError {
-  error_code: string;
-  message: string;
-  request_id: string;
-  details?: Record<string, null> | null;
-}
-
-export const Callback: React.FC = () => {
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const { login } = useAuth();
-  
-  // Guard ref ensures the mutation is absolutely triggered only once per mount
-  const standardGuard = useRef(false);
-
-  const code = searchParams.get('code');
-  const state = searchParams.get('state');
-
-  const { mutate, error: mutationError } = useMutation({
-    mutationFn: async () => {
-      if (!code || !state) {
-        throw new Error('Missing authorization code or state. Please try again.');
-      }
-      return await authAPI.callback(code, state);
-    },
-    onSuccess: (tokenResponse) => {
-      const jti = getJTIFromToken(tokenResponse.access_token) || '';
-
-      if (tokenResponse.username !== 'Sanjaa46') {
-        throw new Error(`Access denied. Only user 'Sanjaa46' is authorized. You are logged in as '${tokenResponse.username}'.`);
-      }
-
-      login(tokenResponse.access_token, tokenResponse.refresh_token, tokenResponse.username, jti);
-      setTimeout(() => navigate('/dashboard'), 500);
-    },
-    onError: (err: CallbackError) => {
-      console.error('Callback error:', err.message);
-      setTimeout(() => navigate('/'), err.message?.includes('Access denied') ? 5000 : 3000);
-    },
-  });
+export function Callback() {
+  const [params] = useSearchParams()
+  const navigate = useNavigate()
+  const { signIn } = useAuth()
+  const [error, setError] = useState<unknown>(null)
+  const started = useRef(false)
 
   useEffect(() => {
-    if (standardGuard.current) return;
-    standardGuard.current = true;
-
-    mutate();
-  }, [mutate]);
-
-  // Determine error message if any part of the mutation failed
-  const errorMessage = mutationError ? mutationError.message : null;
+    // The OAuth code is single-use: guard against StrictMode's double effect.
+    if (started.current) return
+    started.current = true
+    const code = params.get('code')
+    const state = params.get('state')
+    const denied = params.get('error_description') ?? params.get('error')
+    if (denied || !code || !state) {
+      queueMicrotask(() => setError(new Error(denied ?? 'GitHub did not return an authorization code.')))
+      return
+    }
+    api
+      .callback(code, state)
+      .then((tokens) => {
+        signIn(toSession(tokens))
+        navigate('/', { replace: true })
+      })
+      .catch(setError)
+  }, [params, navigate, signIn])
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0F1117', padding: '16px' }}>
-      <div className="rounded-2xl w-full p-8" style={{ maxWidth: '420px', background: '#131722', border: '1px solid #1e2235' }}>
-        {errorMessage ? (
+    <div className="flex min-h-screen items-center justify-center p-6">
+      <div className="w-full max-w-sm animate-rise-in rounded-[var(--radius-lg)] border border-[var(--color-border-subtle)] bg-[var(--color-bg-raised)] p-7">
+        <Logo size={32} />
+        {error ? (
           <>
-            <ErrorAlert message={errorMessage} />
-            <p style={{ textAlign: 'center', color: '#475569', fontSize: '0.85rem', marginTop: '16px' }}>
-              Redirecting to login...
-            </p>
+            <h1 className="mt-5 font-display text-lg font-medium">Sign-in failed</h1>
+            <div className="mt-4">
+              <ErrorBanner error={error} />
+            </div>
+            <Link to="/login" className="mt-5 block">
+              <Button className="w-full">Back to sign in</Button>
+            </Link>
           </>
         ) : (
-          <div className="flex flex-col items-center gap-4 py-4">
-            <div className="relative w-12 h-12">
-              <div className="absolute inset-0 rounded-full border-2" style={{ borderColor: 'rgba(59,130,246,0.15)' }}></div>
-              <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-blue-500 animate-spin"></div>
-            </div>
-            <div style={{ textAlign: 'center' }}>
-              <p style={{ color: '#e2e8f0', fontWeight: 600, fontSize: '0.95rem', marginBottom: '4px' }}>
-                Completing authentication
-              </p>
-              <p style={{ color: '#475569', fontSize: '0.82rem' }}>
-                Verifying your GitHub credentials...
-              </p>
-            </div>
-          </div>
+          <>
+            <h1 className="mt-5 font-display text-lg font-medium">Verifying with GitHub</h1>
+            <p className="mt-2 flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
+              <Loader2 className="size-4 animate-spin text-[var(--color-amber)]" /> Checking your account…
+            </p>
+          </>
         )}
       </div>
     </div>
-  );
-};
+  )
+}

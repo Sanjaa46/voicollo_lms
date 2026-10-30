@@ -11,7 +11,6 @@
 #             LMS-BRD-001 §6 (Security — minimum privilege principle)
 # =============================================================================
 
-import os
 
 from alembic import op
 import sqlalchemy as sa
@@ -28,17 +27,15 @@ depends_on: str | None = None
 # the migration runner (which connects as a superuser/root) can create
 # lower-privilege users.
 # ---------------------------------------------------------------------------
-_LMS_APP_PASSWORD_ENV = "LMS_APP_DB_PASSWORD"
-_LMS_RETENTION_PASSWORD_ENV = "LMS_RETENTION_DB_PASSWORD"
 
 
-def _get_password(env_var: str) -> str:
-    value = os.environ.get(env_var)
+def _get_password(attr: str) -> str:
+    from app.core.config import DatabaseSettings
+
+    value = getattr(DatabaseSettings(), attr)
     if not value:
         raise RuntimeError(
-            f"Environment variable {env_var!r} is not set. "
-            "Cannot create DB user without a password. "
-            "Set this variable before running migrations."
+            f"{attr.upper()} is not set; cannot create the database user without a password."
         )
     return value
 
@@ -63,8 +60,8 @@ def upgrade() -> None:
     MariaDB user with GRANT OPTION privilege (typically root or a DBA account).
     The DATABASE_URL used by lms-migrate container must be a superuser URL.
     """
-    app_password = _get_password(_LMS_APP_PASSWORD_ENV)
-    retention_password = _get_password(_LMS_RETENTION_PASSWORD_ENV)
+    app_password = _get_password("db_app_password")
+    retention_password = _get_password("db_retention_password")
 
     bind = op.get_bind()
 
@@ -99,11 +96,6 @@ def upgrade() -> None:
         f"GRANT SELECT, INSERT ON `{db_name}`.`audit_logs` TO 'lms_app'@'%'"
     ))
 
-    # schema_migrations: SELECT, INSERT, UPDATE, DELETE (Alembic needs full access)
-    bind.execute(sa.text(
-        f"GRANT SELECT, INSERT, UPDATE, DELETE ON `{db_name}`.`schema_migrations` "
-        f"TO 'lms_app'@'%'"
-    ))
 
     # -------------------------------------------------------------------------
     # Create lms_retention user

@@ -19,4 +19,9 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    // Entry point: nothing to hot-swap.
+    files: ['src/main.tsx'],
+    rules: { 'react-refresh/only-export-components': 'off' },
+  },
 ])
