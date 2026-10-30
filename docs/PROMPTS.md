@@ -82,9 +82,9 @@ tests, CI. Commit and push each repo.
 ## 5. Release prompt (after everything is merged)
 
 ```text
-Release voicollo_lms version X.Y.Z: run scripts/release.sh X.Y.Z, push the
-commit and the tag, and confirm the GitHub Actions release workflow pushes
-ghcr.io/sanjaa46/voicollo-lms:X.Y.Z.
+Release voicollo_lms version X.Y.Z: run scripts/release.sh X.Y.Z on a branch,
+push it and open a PR. After I merge it, confirm the Release workflow pushed
+ghcr.io/sanjaa46/voicollo-lms:X.Y.Z and created the vX.Y.Z tag.
 ```
 
 ## 6. Review prompt

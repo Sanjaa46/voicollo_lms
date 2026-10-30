@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Cut a release:  scripts/release.sh 2.1.0
+# Prepare a release:  scripts/release.sh 2.1.0
 #   1. checks the version is SemVer and newer than ./VERSION
 #   2. writes VERSION + frontend/package.json version
 #   3. turns "## [Unreleased]" in CHANGELOG.md into "## [2.1.0] - <date>"
-#   4. commits "chore(release): v2.1.0" and creates annotated tag v2.1.0
-# Pushing the tag triggers .github/workflows/release.yml, which builds and
-# publishes ghcr.io/sanjaa46/voicollo-lms:2.1.0.
+#   4. commits "chore(release): v2.1.0"
+# Merge that commit into main: .github/workflows/release.yml sees a VERSION
+# without a tag, publishes ghcr.io/sanjaa46/voicollo-lms:2.1.0, then creates
+# the v2.1.0 tag and GitHub release. No manual tag push is needed.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -45,8 +46,7 @@ PY
 
 git add VERSION CHANGELOG.md frontend/package.json frontend/package-lock.json
 git commit -m "chore(release): v$NEW"
-git tag -a "v$NEW" -m "Voicollo LMS v$NEW"
 
 echo
-echo "Release v$NEW prepared. Publish it with:"
-echo "  git push origin HEAD && git push origin v$NEW"
+echo "Release v$NEW prepared on $(git rev-parse --abbrev-ref HEAD)."
+echo "Push it and merge into main; the Release workflow publishes the image and tags v$NEW."

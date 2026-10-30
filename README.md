@@ -71,14 +71,18 @@ docs/           deployment guide, refactor plan/progress
 
 ## Release
 
+Releases are driven by the `VERSION` file; nobody pushes tags by hand.
+
 ```bash
-scripts/release.sh 2.1.0               # bumps VERSION + CHANGELOG, commits, tags
-git push origin HEAD && git push origin v2.1.0
+scripts/release.sh 2.1.0      # bumps VERSION + CHANGELOG + frontend version, commits
 ```
 
-Pushing the tag runs `.github/workflows/release.yml`, which builds a
-multi-arch image, pushes `ghcr.io/sanjaa46/voicollo-lms:2.1.0` (plus `2.1` and
-`latest`) and publishes a GitHub release.
+Open a PR with that commit and merge it. On every push to `main`,
+`.github/workflows/release.yml` checks whether `v<VERSION>` already exists.
+If not, it builds a multi-arch image, pushes
+`ghcr.io/sanjaa46/voicollo-lms:2.1.0` (plus `2.1` and `latest`), and then
+creates the `v2.1.0` tag and GitHub release. Pushing a `v*` tag yourself
+still works, and **Actions → Release → Run workflow** re-runs the check.
 
 ## Client packages
 
