@@ -38,6 +38,9 @@ Every item has an ID so `PROGRESS.md` and commits can reference it.
 | L-15 | P2 | `jobs/retention.py` | Self-log uses `async for session in get_db()` (generator hack). |
 | L-16 | P2 | — | No dashboard statistics endpoint (counts per level, timeline, per-service activity). |
 | L-17 | P2 | `alembic/0002` | `lms_app` is granted write on `schema_migrations` (not needed). |
+| L-18 | P1 | `models/audit_log.py` | `AuditLogRequest.environment` is required by the API but there is no column — the value is silently discarded. *(found during refactor)* |
+| L-19 | P1 | `alembic/0001` | Columns created as plain `DATETIME`, so the milliseconds producers send are truncated to seconds (comments claim `DATETIME(3)`). *(found during MariaDB testing)* |
+| L-20 | P1 | `schemas/log_schemas.py` | One malformed entry in a batch fails Pydantic validation for the whole request (422), contradicting the "partial success" contract. *(found during refactor)* |
 
 ## Backend — quality
 

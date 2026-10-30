@@ -8,20 +8,20 @@ Branch in all repos: `claude/busy-fermat-k5t7zn`
 - [x] AUDIT.md, PLAN.md, PROGRESS.md, PROMPTS.md
 
 ## Phase 1 — Backend
-- [ ] 1.1 Project hygiene (requirements split, pyproject, comment cleanup)
-- [ ] 1.2 Config (required JWT secret, component env, PUBLIC_URL, logging)
-- [ ] 1.3 UTC time handling
-- [ ] 1.4 Auth hardening (URL encoding, revocation, refresh token format)
-- [ ] 1.5 Ingest (savepoints, rate limit, replay dedupe, error codes)
-- [ ] 1.6 Query (UNION pagination, filters)
-- [ ] 1.7 Cache generation counter + error metrics
-- [ ] 1.8 Services registry fixes + PATCH + activity
-- [ ] 1.9 Export rewrite
-- [ ] 1.10 Stats overview endpoint
-- [ ] 1.11 Retention lock + manual run
-- [ ] 1.12 Health / version endpoints
-- [ ] 1.13 Migration 0004
-- [ ] 1.14 Test suite
+- [x] 1.1 Project hygiene (requirements split, pyproject, comment cleanup)
+- [x] 1.2 Config (required JWT secret, component env, PUBLIC_URL, logging)
+- [x] 1.3 UTC time handling
+- [x] 1.4 Auth hardening (URL encoding, revocation, refresh token format)
+- [x] 1.5 Ingest (savepoints, rate limit, replay dedupe, error codes)
+- [x] 1.6 Query (UNION pagination, filters)
+- [x] 1.7 Cache generation counter + error metrics
+- [x] 1.8 Services registry fixes + PATCH + activity
+- [x] 1.9 Export rewrite
+- [x] 1.10 Stats overview endpoint
+- [x] 1.11 Retention lock + manual run
+- [x] 1.12 Health / version endpoints
+- [x] 1.13 Migration 0004
+- [x] 1.14 Test suite
 
 ## Phase 2 — Frontend
 - [ ] 2.1 Design tokens + fonts
@@ -49,6 +49,12 @@ Branch in all repos: `claude/busy-fermat-k5t7zn`
 ## Session notes
 (Newest first. Write what was in flight when a session ended.)
 
-- 2026-10-30 — Audit and plan written. Next: Phase 1.1.
+- 2026-10-30 — Phase 1 done. 50 backend tests green; migrations 0001→0004 and
+  0004 downgrade verified on MariaDB 10.6; uvicorn (2 workers) smoke-tested
+  against MariaDB + Redis (UNION paging, stats, export, retention, ms precision,
+  legacy +8 h fix). Extra bugs found and fixed: L-18, L-19, L-20.
+  **Pushing is blocked (HTTP 403 — GitHub app has no access); commits are local.**
+  Next: Phase 2 (frontend).
+- 2026-10-30 — Audit and plan written.
 </content>
 </invoke>
