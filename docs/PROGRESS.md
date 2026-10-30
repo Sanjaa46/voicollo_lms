@@ -24,11 +24,11 @@ Branch in all repos: `claude/busy-fermat-k5t7zn`
 - [x] 1.14 Test suite
 
 ## Phase 2 — Frontend
-- [ ] 2.1 Design tokens + fonts
-- [ ] 2.2 API/auth layer fixes
-- [ ] 2.3 App shell
-- [ ] 2.4 Pages
-- [ ] 2.5 Lint + build clean
+- [x] 2.1 Design tokens + fonts
+- [x] 2.2 API/auth layer fixes
+- [x] 2.3 App shell
+- [x] 2.4 Pages
+- [x] 2.5 Lint + build clean
 
 ## Phase 3 — Deployment
 - [ ] 3.1 Root Dockerfile
@@ -48,6 +48,12 @@ Branch in all repos: `claude/busy-fermat-k5t7zn`
 
 ## Session notes
 (Newest first. Write what was in flight when a session ended.)
+
+- 2026-10-30 — Phase 2 done. New React UI (Overview, Logs explorer with drawer,
+  log detail, Services with integration snippets, System) on ChatBridge tokens;
+  chart palette validated with the dataviz checker (dark + light). Verified with
+  Playwright screenshots against the real backend (no console errors).
+  Fixed F-01..F-07. Next: Phase 3 (single image).
 
 - 2026-10-30 — Phase 1 done. 50 backend tests green; migrations 0001→0004 and
   0004 downgrade verified on MariaDB 10.6; uvicorn (2 workers) smoke-tested

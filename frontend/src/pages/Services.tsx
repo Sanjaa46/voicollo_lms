@@ -1,595 +1,357 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth } from '../services/authContext';
-import { servicesAPI } from '../services/api';
-import type { ServiceEntry, DisableServiceResponse, EnableServiceResponse } from '../services/api';
-import { PageShell, LoadingSpinner, ErrorAlert, SuccessAlert } from '../components/Common';
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Code2, Pencil, Plus, Power, Search, ShieldCheck } from 'lucide-react'
+import { ApiError, api } from '../lib/api'
+import { integer, relativeTime } from '../lib/format'
+import type { Service } from '../lib/types'
+import { Dialog } from '../components/Dialog'
+import {
+  Button,
+  CopyButton,
+  EmptyState,
+  ErrorBanner,
+  Field,
+  IconButton,
+  Input,
+  PageHeader,
+  Panel,
+  Segmented,
+  Spinner,
+  Textarea,
+} from '../components/ui'
+import { cn } from '../lib/cn'
 
-// ─── Page ────────────────────────────────────────────────────────────────────
+type StatusFilter = 'all' | 'active' | 'disabled'
 
-export const Services: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuth();
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
+export function Services() {
+  const [q, setQ] = useState('')
+  const [status, setStatus] = useState<StatusFilter>('all')
+  const [editing, setEditing] = useState<Service | 'new' | null>(null)
+  const [integrating, setIntegrating] = useState<Service | null>(null)
+  const [confirming, setConfirming] = useState<Service | null>(null)
+  const queryClient = useQueryClient()
 
-  const [success, setSuccess] = useState<string | null>(null);
-  const [toggleError, setToggleError] = useState<string | null>(null);
-  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const { data, error, isLoading, refetch } = useQuery({
+    queryKey: ['services', q, status],
+    queryFn: () => api.services({ q: q || undefined, status: status === 'all' ? undefined : status }),
+    placeholderData: keepPreviousData,
+    refetchInterval: 60_000,
+  })
 
-  // Filter input state (live typing, not yet applied)
-  const [filterName, setFilterName] = useState('');
-  const [filterId, setFilterId] = useState('');
-  // Applied filter state — only changes on "Apply filters" / "Reset", drives the query key
-  const [appliedFilters, setAppliedFilters] = useState<{ name?: string; id?: string }>({});
-
-  const [showRegister, setShowRegister] = useState(false);
-
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) navigate('/');
-  }, [isAuthenticated, isLoading, navigate]);
-
-  const enabled = isAuthenticated && !isLoading;
-
-  const {
-    data: services = [],
-    isLoading: servicesLoading,
-    isError: servicesQueryError,
-  } = useQuery({
-    queryKey: ['services', appliedFilters],
-    queryFn: async () => {
-      const data = await servicesAPI.queryServices({ name: appliedFilters.name, id: appliedFilters.id });
-      return Array.isArray(data)
-        ? data
-        : Array.isArray((data as any)?.services)
-          ? (data as any).services
-          : Array.isArray((data as any)?.data)
-            ? (data as any).data
-            : [];
+  const toggle = useMutation({
+    mutationFn: (s: Service) => api.setServiceActive(s.id, !s.is_active),
+    onSuccess: () => {
+      setConfirming(null)
+      void queryClient.invalidateQueries({ queryKey: ['services'] })
     },
-    enabled,
-  });
-
-  const toggleMutation = useMutation<
-    DisableServiceResponse | EnableServiceResponse,
-    Error,
-    ServiceEntry
-  >({
-    mutationFn: (service) =>
-      service.is_active ? servicesAPI.disableService(service.id) : servicesAPI.enableService(service.id),
-  });
-
-  const handleToggle = (service: ServiceEntry) => {
-    setToggleError(null);
-    setSuccess(null);
-    setTogglingId(service.id);
-    toggleMutation.mutate(service, {
-      onSuccess: () => {
-        setSuccess(`Service "${service.name}" ${service.is_active ? 'disabled' : 'enabled'}.`);
-        queryClient.invalidateQueries({ queryKey: ['services'] });
-      },
-      onError: (err) => {
-        console.error('Toggle failed:', err);
-        setToggleError(`Failed to ${service.is_active ? 'disable' : 'enable'} service. If you see a network error, ensure your backend allows PATCH requests in its CORS policy.`);
-      },
-      onSettled: () => setTogglingId(null),
-    });
-  };
-
-  const handleFilterApply = () => setAppliedFilters({ name: filterName || undefined, id: filterId || undefined });
-  const handleFilterReset = () => {
-    setFilterName('');
-    setFilterId('');
-    setAppliedFilters({});
-  };
-
-  const handleRegistered = (name: string) => {
-    setShowRegister(false);
-    setSuccess(`Service "${name}" registered successfully.`);
-    queryClient.invalidateQueries({ queryKey: ['services'] });
-  };
-
-  if (isLoading) return <LoadingSpinner />;
-
-  const enabledCount = services.filter((s: ServiceEntry) => s.is_active).length;
-  const disabledCount = services.length - enabledCount;
-
-  const displayError = toggleError ?? (servicesQueryError ? 'Failed to load services. Please try again.' : null);
+  })
 
   return (
-    <PageShell>
-      <main style={{ padding: '32px', maxWidth: '1200px' }}>
+    <>
+      <PageHeader eyebrow="Services" title="Producers">
+        <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>
+          Register service
+        </Button>
+      </PageHeader>
 
-        {/* Page header */}
-        <div className="flex items-start justify-between mb-6">
-          <div>
-            <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#0f172a', letterSpacing: '-0.02em', marginBottom: '4px' }}>
-              Services
-            </h1>
-            <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
-              {services.length > 0 ? (
-                <>
-                  <span style={{ color: '#3b82f6', fontWeight: 600 }}>{services.length}</span> registered
-                  {enabledCount > 0 && <> · <span style={{ color: '#10b981', fontWeight: 600 }}>{enabledCount}</span> active</>}
-                  {disabledCount > 0 && <> · <span style={{ color: '#94a3b8', fontWeight: 600 }}>{disabledCount}</span> disabled</>}
-                </>
-              ) : 'No services registered'}
-            </p>
+      <Panel className="overflow-hidden">
+        <div className="flex flex-wrap items-center gap-3 border-b border-[var(--color-border-subtle)] p-3">
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--color-text-faint)]" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by id or name" className="pl-9" />
           </div>
-          <button
-            onClick={() => setShowRegister(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all"
-            style={{ background: '#3b82f6', color: '#fff', border: 'none', cursor: 'pointer' }}
-            onMouseEnter={e => e.currentTarget.style.background = '#2563eb'}
-            onMouseLeave={e => e.currentTarget.style.background = '#3b82f6'}>
-            <PlusIcon />
-            Register service
-          </button>
+          <Segmented
+            label="Status"
+            value={status}
+            onChange={setStatus}
+            options={[
+              { value: 'all', label: 'All' },
+              { value: 'active', label: 'Active' },
+              { value: 'disabled', label: 'Disabled' },
+            ]}
+          />
         </div>
 
-        {displayError && <ErrorAlert message={displayError} onDismiss={() => setToggleError(null)} />}
-        {success && <SuccessAlert message={success} onDismiss={() => setSuccess(null)} />}
+        {error ? (
+          <div className="p-4">
+            <ErrorBanner error={error} onRetry={() => void refetch()} />
+          </div>
+        ) : null}
+        {toggle.error ? (
+          <div className="p-4">
+            <ErrorBanner error={toggle.error} />
+          </div>
+        ) : null}
 
-        {/* Filters */}
-        <div className="rounded-xl mb-5" style={{ background: '#fff', border: '1px solid #e2e8f0' }}>
-          <div className="px-5 py-4" style={{ borderBottom: '1px solid #f1f5f9' }}>
-            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>Filter services</span>
+        {isLoading ? (
+          <Spinner />
+        ) : data?.data.length ? (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[820px] text-left">
+              <thead>
+                <tr className="border-b border-[var(--color-border-subtle)] font-mono text-[10.5px] uppercase tracking-[0.14em] text-[var(--color-text-faint)]">
+                  <th className="py-2.5 pl-5 pr-3 font-normal">Service</th>
+                  <th className="px-3 font-normal">Status</th>
+                  <th className="px-3 font-normal">Last seen</th>
+                  <th className="px-3 text-right font-normal">Logs 24h</th>
+                  <th className="px-3 text-right font-normal">Errors 24h</th>
+                  <th className="px-3 text-right font-normal">Audit 24h</th>
+                  <th className="w-[132px] px-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {data.data.map((s) => (
+                  <tr key={s.id} className={cn('border-b border-[var(--color-border-subtle)] last:border-0', !s.is_active && 'opacity-60')}>
+                    <td className="py-3 pl-5 pr-3">
+                      <div className="flex items-center gap-2">
+                        <Link to={`/logs?service=${encodeURIComponent(s.id)}`} className="font-mono text-[13px] hover:text-[var(--color-accent-text)]">
+                          {s.id}
+                        </Link>
+                        {s.is_protected && (
+                          <span title="System service — cannot be disabled">
+                            <ShieldCheck className="size-3.5 text-[var(--color-text-faint)]" />
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-[var(--color-text-muted)]">{s.name}</div>
+                      {s.description && (
+                        <div className="mt-0.5 max-w-md truncate text-xs text-[var(--color-text-faint)]">{s.description}</div>
+                      )}
+                    </td>
+                    <td className="px-3">
+                      <span
+                        className="inline-flex h-5 items-center gap-1.5 rounded-full border px-2 font-mono text-[10.5px]"
+                        style={
+                          s.is_active
+                            ? { color: 'var(--color-success)', borderColor: 'var(--color-success-border)', background: 'var(--color-success-soft)' }
+                            : { color: 'var(--color-text-faint)', borderColor: 'var(--color-border)' }
+                        }
+                      >
+                        <span className="size-1.5 rounded-full" style={{ background: s.is_active ? 'var(--color-success)' : 'var(--color-text-faint)' }} />
+                        {s.is_active ? 'active' : 'disabled'}
+                      </span>
+                    </td>
+                    <td className="px-3 font-mono text-xs text-[var(--color-text-muted)]">
+                      {relativeTime(s.activity?.last_seen_at)}
+                    </td>
+                    <td className="tabular px-3 text-right font-mono text-[13px]">{integer(s.activity?.app_logs_24h ?? 0)}</td>
+                    <td
+                      className="tabular px-3 text-right font-mono text-[13px]"
+                      style={{ color: s.activity?.errors_24h ? 'var(--color-danger)' : 'var(--color-text-faint)' }}
+                    >
+                      {integer(s.activity?.errors_24h ?? 0)}
+                    </td>
+                    <td className="tabular px-3 text-right font-mono text-[13px]">{integer(s.activity?.audit_logs_24h ?? 0)}</td>
+                    <td className="px-3">
+                      <div className="flex justify-end gap-0.5">
+                        <IconButton label="Integration snippet" onClick={() => setIntegrating(s)}>
+                          <Code2 className="size-4" />
+                        </IconButton>
+                        <IconButton label="Edit" onClick={() => setEditing(s)}>
+                          <Pencil className="size-3.5" />
+                        </IconButton>
+                        <IconButton
+                          label={s.is_active ? 'Disable' : 'Enable'}
+                          disabled={s.is_protected && s.is_active}
+                          className="disabled:cursor-not-allowed disabled:opacity-30"
+                          onClick={() => (s.is_active ? setConfirming(s) : toggle.mutate(s))}
+                        >
+                          <Power className={cn('size-3.5', s.is_active ? '' : 'text-[var(--color-success)]')} />
+                        </IconButton>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <div className="p-5">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <FilterLabel>Name</FilterLabel>
-                <FilterInput
-                  value={filterName}
-                  onChange={setFilterName}
-                  placeholder="e.g., example-service"
-                />
-              </div>
-              <div>
-                <FilterLabel>Service ID</FilterLabel>
-                <FilterInput
-                  value={filterId}
-                  onChange={setFilterId}
-                  placeholder="Service ID"
-                  mono
-                />
-              </div>
-            </div>
-            <div className="flex gap-2 mt-4">
-              <button onClick={handleFilterApply}
-                className="px-5 py-2 rounded-lg text-sm font-semibold"
-                style={{ background: '#3b82f6', color: '#fff', border: 'none', cursor: 'pointer' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#2563eb'}
-                onMouseLeave={e => e.currentTarget.style.background = '#3b82f6'}>
-                Apply filters
-              </button>
-              <button onClick={handleFilterReset}
-                className="px-5 py-2 rounded-lg text-sm font-medium"
-                style={{ background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', cursor: 'pointer' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
-                onMouseLeave={e => e.currentTarget.style.background = '#f8fafc'}>
-                Reset
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Table */}
-        {servicesLoading ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="relative w-10 h-10">
-              <div className="absolute inset-0 rounded-full border-2 border-blue-100"></div>
-              <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-blue-500 animate-spin"></div>
-            </div>
-          </div>
-        ) : services.length === 0 ? (
-          <EmptyState onRegister={() => setShowRegister(true)} />
         ) : (
-          <ServicesTable
-            services={services}
-            togglingId={togglingId}
-            onToggle={handleToggle}
+          <EmptyState
+            title={q || status !== 'all' ? 'No services match' : 'No services yet'}
+            hint="A service must be registered before it can send logs."
+            action={
+              <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>
+                Register service
+              </Button>
+            }
           />
         )}
-      </main>
+      </Panel>
 
-      {/* Register modal */}
-      {showRegister && (
-        <RegisterModal
-          onClose={() => setShowRegister(false)}
-          onSuccess={handleRegistered}
-        />
-      )}
-    </PageShell>
-  );
-};
+      <ServiceDialog
+        key={editing === 'new' ? 'new' : editing?.id ?? 'closed'}
+        service={editing}
+        onClose={() => setEditing(null)}
+        onSaved={(s, created) => {
+          setEditing(null)
+          void queryClient.invalidateQueries({ queryKey: ['services'] })
+          if (created) setIntegrating(s)
+        }}
+      />
 
-// ─── Services Table ───────────────────────────────────────────────────────────
+      <Dialog
+        open={!!confirming}
+        onClose={() => setConfirming(null)}
+        title={`Disable ${confirming?.id}?`}
+        description="The service will be rejected (HTTP 403 SERVICE_DISABLED) on its next ingest. Existing logs are kept."
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirming(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" loading={toggle.isPending} onClick={() => confirming && toggle.mutate(confirming)}>
+              Disable
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-[var(--color-text-muted)]">You can enable it again at any time.</p>
+      </Dialog>
 
-const ServicesTable: React.FC<{
-  services: ServiceEntry[];
-  togglingId: string | null;
-  onToggle: (service: ServiceEntry) => void;
-}> = ({ services, togglingId, onToggle }) => {
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return '—';
-    const d = new Date(dateString);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
-      ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-  };
+      <IntegrationDialog service={integrating} onClose={() => setIntegrating(null)} />
+    </>
+  )
+}
 
-  return (
-    <div className="rounded-xl overflow-hidden" style={{ background: '#fff', border: '1px solid #e2e8f0' }}>
-      <div className="overflow-x-auto">
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              {['Status', 'Name', 'ID', 'Registered', ''].map(h => (
-                <th key={h} style={{
-                  padding: '10px 16px', textAlign: 'left',
-                  fontSize: '0.7rem', fontWeight: 600, color: '#94a3b8',
-                  letterSpacing: '0.08em', textTransform: 'uppercase', whiteSpace: 'nowrap',
-                }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {services.map((service, i) => {
-              const isToggling = togglingId === service.id;
-              return (
-                <tr key={service.id}
-                  style={{ borderBottom: i < services.length - 1 ? '1px solid #f1f5f9' : 'none' }}
-                  onMouseEnter={e => (e.currentTarget.style.background = '#fafbff')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+function ServiceDialog({
+  service,
+  onClose,
+  onSaved,
+}: {
+  service: Service | 'new' | null
+  onClose: () => void
+  onSaved: (s: Service, created: boolean) => void
+}) {
+  const isNew = service === 'new'
+  const existing = service && service !== 'new' ? service : null
+  const [id, setId] = useState('')
+  const [name, setName] = useState(existing?.name ?? '')
+  const [description, setDescription] = useState(existing?.description ?? '')
 
-                  <td style={{ padding: '14px 16px', whiteSpace: 'nowrap' }}>
-                    <StatusPill enabled={service.is_active} />
-                  </td>
+  const save = useMutation({
+    mutationFn: () =>
+      isNew
+        ? api.createService({ id, name, description: description || undefined })
+        : api.updateService(existing!.id, { name, description: description || null }),
+    onSuccess: (s) => onSaved(s, isNew),
+  })
 
-                  <td style={{ padding: '14px 16px' }}>
-                    <div style={{ fontWeight: 600, fontSize: '0.875rem', color: '#1e293b' }}>{service.name}</div>
-                    {service.description && (
-                      <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {service.description}
-                      </div>
-                    )}
-                  </td>
-
-                  <td style={{ padding: '14px 16px', fontFamily: 'monospace', fontSize: '0.775rem', color: '#64748b', whiteSpace: 'nowrap' }}>
-                    {service.id}
-                  </td>
-
-                  <td style={{ padding: '14px 16px', fontFamily: 'monospace', fontSize: '0.75rem', color: '#94a3b8', whiteSpace: 'nowrap' }}>
-                    {formatDate(service.created_at)}
-                  </td>
-
-                  <td style={{ padding: '14px 16px', whiteSpace: 'nowrap' }}>
-                    <ToggleButton
-                      enabled={service.is_active}
-                      loading={isToggling}
-                      onClick={() => onToggle(service)}
-                    />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-};
-
-// ─── Register Modal ───────────────────────────────────────────────────────────
-
-const toSlug = (value: string) =>
-  value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-
-const modalLabelStyle: React.CSSProperties = {
-  display: 'block', fontSize: '0.75rem', fontWeight: 600,
-  color: '#64748b', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: '6px',
-};
-
-const RegisterModal: React.FC<{
-  onClose: () => void;
-  onSuccess: (name: string) => void;
-}> = ({ onClose, onSuccess }) => {
-  const [name, setName] = useState('');
-  const [id, setId] = useState('');
-  const [idTouched, setIdTouched] = useState(false);
-  const [description, setDescription] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleNameChange = (value: string) => {
-    setName(value);
-    if (!idTouched) setId(toSlug(value));
-  };
-
-  const handleIdChange = (value: string) => {
-    setIdTouched(true);
-    setId(value.toLowerCase().replace(/[^a-z0-9-]/g, ''));
-  };
-
-  const canSubmit = name.trim().length > 0 && id.trim().length > 0 && !loading;
-
-  const handleSubmit = async () => {
-    const trimmedName = name.trim();
-    const trimmedId = id.trim();
-    if (!trimmedName) { setError('Service name is required.'); return; }
-    if (!trimmedId)   { setError('Service ID is required.'); return; }
-    try {
-      setLoading(true);
-      setError(null);
-      await servicesAPI.registerService({
-        id: trimmedId,
-        name: trimmedName,
-        description: description.trim() || undefined,
-      });
-      onSuccess(trimmedName);
-    } catch (err: any) {
-      console.error('Register failed:', err);
-      const status = err?.response?.status ?? err?.status;
-      if (status === 409) {
-        setError('A service with this ID or name already exists.');
-      } else if (status === 422) {
-        const details = err?.response?.data?.details?.field_errors;
-        const msg = details
-          ? Object.entries(details).map(([k, v]) => `${k}: ${(v as string[]).join(', ')}`).join(' · ')
-          : null;
-        setError(msg ?? 'Validation error. Please check your inputs.');
-      } else {
-        setError('Failed to register service. Please try again.');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  const fieldErrors = save.error instanceof ApiError ? save.error.fieldErrors : {}
+  const fieldError = (name: string) => fieldErrors[`body.${name}`]?.join(', ')
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }}
-      onClick={onClose}>
-      <div
-        className="w-full rounded-2xl shadow-2xl"
-        style={{ maxWidth: '480px', background: '#fff', border: '1px solid #e2e8f0' }}
-        onClick={e => e.stopPropagation()}>
-
-        {/* Modal header */}
-        <div className="flex items-center justify-between px-6 py-5" style={{ borderBottom: '1px solid #f1f5f9' }}>
-          <div>
-            <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a', letterSpacing: '-0.01em' }}>
-              Register service
-            </h2>
-            <p style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '2px' }}>
-              Add a new service to the registry
-            </p>
-          </div>
-          <button onClick={onClose}
-            style={{ color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}
-            onMouseEnter={e => e.currentTarget.style.color = '#475569'}
-            onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}>
-            <CloseXIcon />
-          </button>
-        </div>
-
-        {/* Modal body */}
-        <div className="px-6 py-5" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {error && <ErrorAlert message={error} onDismiss={() => setError(null)} />}
-
-          <div>
-            <label style={modalLabelStyle}>
-              Name <span style={{ color: '#ef4444' }}>*</span>
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={e => handleNameChange(e.target.value)}
-              placeholder="e.g., Example Service"
-              maxLength={128}
-              style={modalInputStyle}
-              onFocus={e => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59,130,246,0.1)'; }}
-              onBlur={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}
-            />
-          </div>
-
-          <div>
-            <label style={modalLabelStyle}>
-              ID <span style={{ color: '#ef4444' }}>*</span>
-              <span style={{ color: '#94a3b8', fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: '6px' }}>
-                auto-filled · lowercase, hyphens only
-              </span>
-            </label>
-            <input
-              type="text"
-              value={id}
-              onChange={e => handleIdChange(e.target.value)}
-              placeholder="e.g., example-service"
-              maxLength={64}
-              style={{ ...modalInputStyle, fontFamily: 'monospace' }}
-              onFocus={e => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59,130,246,0.1)'; }}
-              onBlur={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}
-              onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }}
-            />
-            {id && (
-              <p style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '4px', fontFamily: 'monospace' }}>
-                Will be registered as: <strong style={{ color: '#475569' }}>{id}</strong>
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label style={modalLabelStyle}>
-              Description{' '}
-              <span style={{ color: '#94a3b8', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>optional</span>
-            </label>
-            <textarea
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              placeholder="Brief description of what this service does"
-              rows={3}
-              style={{ ...modalInputStyle, resize: 'vertical', minHeight: '72px' }}
-              onFocus={e => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59,130,246,0.1)'; }}
-              onBlur={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}
-            />
-          </div>
-        </div>
-
-        {/* Modal footer */}
-        <div className="flex justify-end gap-2 px-6 py-4" style={{ borderTop: '1px solid #f1f5f9' }}>
-          <button onClick={onClose}
-            className="px-4 py-2 rounded-lg text-sm font-medium"
-            style={{ background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', cursor: 'pointer' }}
-            onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
-            onMouseLeave={e => e.currentTarget.style.background = '#f8fafc'}>
+    <Dialog
+      open={!!service}
+      onClose={onClose}
+      title={isNew ? 'Register service' : `Edit ${existing?.id}`}
+      description={isNew ? 'Producers send this id as source_service.' : undefined}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
             Cancel
-          </button>
-          <button onClick={handleSubmit} disabled={!canSubmit}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold"
-            style={{
-              background: !canSubmit ? '#bfdbfe' : '#3b82f6',
-              color: '#fff', border: 'none',
-              cursor: !canSubmit ? 'not-allowed' : 'pointer',
-            }}
-            onMouseEnter={e => { if (canSubmit) e.currentTarget.style.background = '#2563eb'; }}
-            onMouseLeave={e => { if (canSubmit) e.currentTarget.style.background = '#3b82f6'; }}>
-            {loading ? (
-              <>
-                <div className="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                Registering...
-              </>
-            ) : (
-              'Register service'
-            )}
-          </button>
-        </div>
+          </Button>
+          <Button variant="primary" loading={save.isPending} disabled={!name.trim() || (isNew && !id.trim())} onClick={() => save.mutate()}>
+            {isNew ? 'Register' : 'Save'}
+          </Button>
+        </>
+      }
+    >
+      <form
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault()
+          save.mutate()
+        }}
+      >
+        {isNew && (
+          <Field label="Service id" hint="Lowercase letters, digits, '.', '_' or '-'. Cannot be changed later." error={fieldError('id')}>
+            <Input
+              autoFocus
+              value={id}
+              onChange={(e) => setId(e.target.value.toLowerCase())}
+              placeholder="billing-api"
+              className="font-mono"
+              maxLength={64}
+            />
+          </Field>
+        )}
+        <Field label="Display name" error={fieldError('name')}>
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Billing API" maxLength={128} autoFocus={!isNew} />
+        </Field>
+        <Field label="Description" error={fieldError('description')}>
+          <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What this service does" maxLength={2000} />
+        </Field>
+        {save.error && !Object.keys(fieldErrors).length ? <ErrorBanner error={save.error} /> : null}
+        <button type="submit" hidden />
+      </form>
+    </Dialog>
+  )
+}
+
+function IntegrationDialog({ service, onClose }: { service: Service | null; onClose: () => void }) {
+  const [lang, setLang] = useState<'js' | 'py' | 'env'>('js')
+  const origin = window.location.origin
+  const id = service?.id ?? 'my-service'
+  const snippets = {
+    env: `LMS_URL=${origin}\nLMS_INGEST_SECRET=<INGEST_SIGNING_SECRET from the LMS .env>\nLMS_SOURCE_SERVICE=${id}`,
+    js: `// npm install github:Sanjaa46/voicollo_log_client_js#v1.0.0
+import { LMSClient } from 'lms-logger'
+
+const lms = new LMSClient({
+  baseUrl: process.env.LMS_URL,            // ${origin}
+  secret: process.env.LMS_INGEST_SECRET,
+  sourceService: '${id}',
+  environment: process.env.NODE_ENV ?? 'production',
+  buffered: true,                          // batch in the background, never throw
+})
+
+lms.info('Service started', { version: '1.4.2' })
+lms.error('Payment failed', { orderId: 8812 }, { traceId: req.id })
+await lms.audit({
+  actorId: user.id, actorType: 'USER',
+  action: 'RECORD_DELETE', targetResource: '/records/42', outcome: 'SUCCESS',
+})
+
+process.on('SIGTERM', () => lms.close())  // flushes the buffer`,
+    py: `# pip install "lms-logger @ git+https://github.com/Sanjaa46/voicollo_log_client_py@v1.0.0"
+import os
+from lms_logger import LMSClient
+
+lms = LMSClient(
+    base_url=os.environ["LMS_URL"],          # ${origin}
+    secret=os.environ["LMS_INGEST_SECRET"],
+    source_service="${id}",
+    environment="production",
+)
+
+lms.info("Service started", context={"version": "1.4.2"})
+lms.error("Payment failed", context={"order_id": 8812}, trace_id=request_id)
+lms.audit(
+    actor_id=user.id, actor_type="USER",
+    action="RECORD_DELETE", target_resource="/records/42", outcome="SUCCESS",
+)
+
+# or route stdlib logging:  logging.getLogger().addHandler(lms.handler())`,
+  }
+  return (
+    <Dialog wide open={!!service} onClose={onClose} title={`Send logs from ${id}`} description="Requests are signed with HMAC-SHA256 using the shared ingest secret.">
+      <div className="mb-3 flex items-center justify-between">
+        <Segmented
+          label="Language"
+          value={lang}
+          onChange={setLang}
+          options={[
+            { value: 'js', label: 'Node.js' },
+            { value: 'py', label: 'Python' },
+            { value: 'env', label: '.env' },
+          ]}
+        />
+        <CopyButton value={snippets[lang]} label="Copy snippet" />
       </div>
-    </div>
-  );
-};
-
-// ─── Small components ─────────────────────────────────────────────────────────
-
-const StatusPill: React.FC<{ enabled: boolean }> = ({ enabled }) => (
-  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full"
-    style={{
-      background: enabled ? '#f0fdf4' : '#f8fafc',
-      border: `1px solid ${enabled ? '#bbf7d0' : '#e2e8f0'}`,
-      color: enabled ? '#166534' : '#64748b',
-      fontSize: '0.7rem',
-      fontWeight: 600,
-    }}>
-    <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-      style={{ background: enabled ? '#10b981' : '#cbd5e1' }} />
-    {enabled ? 'Active' : 'Disabled'}
-  </span>
-);
-
-const ToggleButton: React.FC<{ enabled: boolean; loading: boolean; onClick: () => void }> = ({ enabled, loading, onClick }) => (
-  <button onClick={onClick} disabled={loading}
-    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
-    style={{
-      background: enabled ? '#fff1f2' : '#f0fdf4',
-      color: enabled ? '#be123c' : '#166534',
-      border: `1px solid ${enabled ? '#fecdd3' : '#bbf7d0'}`,
-      cursor: loading ? 'wait' : 'pointer',
-      opacity: loading ? 0.7 : 1,
-      minWidth: '80px',
-      justifyContent: 'center',
-    }}
-    onMouseEnter={e => { if (!loading) e.currentTarget.style.opacity = '0.8'; }}
-    onMouseLeave={e => { if (!loading) e.currentTarget.style.opacity = '1'; }}>
-    {loading ? (
-      <div className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" />
-    ) : enabled ? (
-      <><DisableIcon /> Disable</>
-    ) : (
-      <><EnableIcon /> Enable</>
-    )}
-  </button>
-);
-
-const EmptyState: React.FC<{ onRegister: () => void }> = ({ onRegister }) => (
-  <div className="rounded-xl p-14 text-center" style={{ background: '#fff', border: '1px solid #e2e8f0' }}>
-    <div style={{ width: '48px', height: '48px', margin: '0 auto 16px', borderRadius: '12px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-        <rect x="1.5" y="1.5" width="8" height="8" rx="2" stroke="#94a3b8" strokeWidth="1.5"/>
-        <rect x="12.5" y="1.5" width="8" height="8" rx="2" stroke="#94a3b8" strokeWidth="1.5"/>
-        <rect x="1.5" y="12.5" width="8" height="8" rx="2" stroke="#94a3b8" strokeWidth="1.5"/>
-        <rect x="12.5" y="12.5" width="8" height="8" rx="2" stroke="#94a3b8" strokeWidth="1.5"/>
-      </svg>
-    </div>
-    <p style={{ color: '#334155', fontSize: '0.95rem', fontWeight: 600, marginBottom: '4px' }}>No services registered</p>
-    <p style={{ color: '#94a3b8', fontSize: '0.82rem', marginBottom: '20px' }}>
-      Register your first service to start routing logs to it.
-    </p>
-    <button onClick={onRegister}
-      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold"
-      style={{ background: '#3b82f6', color: '#fff', border: 'none', cursor: 'pointer' }}
-      onMouseEnter={e => e.currentTarget.style.background = '#2563eb'}
-      onMouseLeave={e => e.currentTarget.style.background = '#3b82f6'}>
-      <PlusIcon />
-      Register service
-    </button>
-  </div>
-);
-
-const FilterLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: '6px' }}>
-    {children}
-  </div>
-);
-
-const FilterInput: React.FC<{ value: string; onChange: (v: string) => void; placeholder: string; mono?: boolean }> = ({ value, onChange, placeholder, mono }) => (
-  <input
-    type="text"
-    value={value}
-    onChange={e => onChange(e.target.value)}
-    placeholder={placeholder}
-    style={{
-      width: '100%', padding: '8px 12px',
-      border: '1px solid #e2e8f0', borderRadius: '8px',
-      fontSize: '0.875rem', color: '#1e293b', background: '#fff',
-      outline: 'none', fontFamily: mono ? 'monospace' : 'inherit',
-      boxSizing: 'border-box',
-    }}
-    onFocus={e => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59,130,246,0.1)'; }}
-    onBlur={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}
-  />
-);
-
-const modalInputStyle: React.CSSProperties = {
-  width: '100%', padding: '9px 12px',
-  border: '1px solid #e2e8f0', borderRadius: '8px',
-  fontSize: '0.875rem', color: '#1e293b', background: '#fff',
-  outline: 'none', transition: 'border-color 0.15s',
-  boxSizing: 'border-box',
-};
-
-// ─── Icons ────────────────────────────────────────────────────────────────────
-
-const PlusIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-    <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-  </svg>
-);
-
-const EnableIcon = () => (
-  <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-    <path d="M2 5.5l2.5 2.5 4.5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-  </svg>
-);
-
-const DisableIcon = () => (
-  <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-    <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.3"/>
-    <path d="M3.5 3.5l4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-  </svg>
-);
-
-const CloseXIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-    <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-  </svg>
-);
+      <pre className="max-h-[380px] overflow-auto rounded-[var(--radius-md)] border border-[var(--color-border-subtle)] bg-[var(--color-bg)] p-3.5 font-mono text-[12px] leading-relaxed text-[var(--color-text-muted)]">
+        {snippets[lang]}
+      </pre>
+    </Dialog>
+  )
+}
